@@ -8,10 +8,10 @@ type MultiDimPlan{T,forward} <: Plan{T}
     w::Vector{T} # workspace (for in-place 1d transforms)
     lastdim::Int # last transformed dimension
     pinv::ScaledPlan{T}
-    MultiDimPlan(p,w,lastdim) = new(p,w,lastdim)
+    MultiDimPlan{T,forward}(p,w,lastdim) where {T,forward} = new(p,w,lastdim)
 end
 
-summary{T,forw}(p::MultiDimPlan{T,forw}) =
+summary(p::MultiDimPlan{T,forw}) where {T,forw} =
     string(forw ? "forward " : "backward ", length(p.p),
            "-dimensional MultiDimPlan{$T} of size ",
            join(map(P -> P.n == 0 ? "_" : string(P.n), p.p), "x"))
@@ -23,16 +23,16 @@ end
 
 size(p::MultiDimPlan) = ntuple(n -> p.p[n].n, length(p.p))
 
-function plan_inv{T,forward}(p::MultiDimPlan{T,forward})
+function plan_inv(p::MultiDimPlan{T,forward}) where {T,forward}
     sz = filter(n -> n != 0, map(P -> P.n, p.p))
     ScaledPlan(MultiDimPlan{T,!forward}(map(invCT, p.p), p.w, p.lastdim),
                isempty(sz) ? 1 : normalization(real(T), sz, 1:length(sz)))
 end
 
-function MultiDimPlan{T<:Complex}(::Type{T}, forward::Bool, region, sz)
+function MultiDimPlan(::Type{T}, forward::Bool, region, sz) where T<:Complex
     sregion = sort(Int[d for d in region])
     N = length(sz)
-    p = Array(CTPlan{T,forward}, N)
+    p = Array{CTPlan{T,forward}}(N)
     i = 0
     for d in sregion
         (d < 0 || d > N) && throw(ArgumentError("invalid dimension $d"))
@@ -46,19 +46,19 @@ function MultiDimPlan{T<:Complex}(::Type{T}, forward::Bool, region, sz)
     for j = i+1:N
         p[j] = CTPlan(T,forward) # non-transformed dimensions
     end
-    w = Array(T, length(sregion) <= 1 ? 0 : maximum(sz[sregion[1:end-1]]))
+    w = Array{T}(length(sregion) <= 1 ? 0 : maximum(sz[sregion[1:end-1]]))
     MultiDimPlan{T,forward}(p, w, i)
 end
 
-plan_fft{Tr<:FloatingPoint}(x::AbstractArray{Complex{Tr}}, region) =
+plan_fft(x::AbstractArray{Complex{Tr}}, region) where Tr<:AbstractFloat =
     MultiDimPlan(Complex{Tr}, true, region, size(x))::MultiDimPlan{Complex{Tr}, true}
-plan_bfft{Tr<:FloatingPoint}(x::AbstractArray{Complex{Tr}}, region) =
+plan_bfft(x::AbstractArray{Complex{Tr}}, region) where Tr<:AbstractFloat =
     MultiDimPlan(Complex{Tr}, false, region, size(x))::MultiDimPlan{Complex{Tr}, false}
 
 # recursive execution of a MultiDim plan, starting at dimension d, for
 # strided arrays (so that we can use linear indexing):
-function applydims{T}(p::MultiDimPlan{T}, d,
-                      x::StridedArray{T}, x0, y::StridedArray{T}, y0)
+function applydims(p::MultiDimPlan{T}, d,
+                   x::StridedArray{T}, x0, y::StridedArray{T}, y0) where T
     if d == p.lastdim
         if d == ndims(x)
             applystep(p.p[d], x,x0,stride(x,d), y,y0,stride(y,d), 1)
@@ -80,7 +80,7 @@ function applydims{T}(p::MultiDimPlan{T}, d,
     end
 end
 # apply p to dimension d of y, in-place, looping over dimensions >= k
-function applydim{T}(p::MultiDimPlan{T}, d, k, y::StridedArray{T}, y0)
+function applydim(p::MultiDimPlan{T}, d, k, y::StridedArray{T}, y0) where T
     sy_k = stride(y,k)
     if k == ndims(y)
         P = p.p[d]
@@ -104,9 +104,9 @@ function applydim{T}(p::MultiDimPlan{T}, d, k, y::StridedArray{T}, y0)
     end
 end
 # as above, but out-of-place
-function applydim{T}(p::MultiDimPlan{T}, d, k,
-                     x::StridedArray{T}, x0,
-                     y::StridedArray{T}, y0)
+function applydim(p::MultiDimPlan{T}, d, k,
+                  x::StridedArray{T}, x0,
+                  y::StridedArray{T}, y0) where T
     sx_k = stride(x,k)
     sy_k = stride(y,k)
     if k == ndims(y)
@@ -127,8 +127,8 @@ function applydim{T}(p::MultiDimPlan{T}, d, k,
     end
 end
 
-function A_mul_B!{T}(y::StridedArray{T},
-                     p::MultiDimPlan{T}, x::StridedArray{T})
+function A_mul_B!(y::StridedArray{T},
+                  p::MultiDimPlan{T}, x::StridedArray{T}) where T
     N = ndims(x)
     ndims(y) != N && throw(BoundsError())
     for i = 1:N
@@ -143,4 +143,4 @@ function A_mul_B!{T}(y::StridedArray{T},
     return y
 end
 
-*{T}(p::MultiDimPlan{T}, x::StridedArray{T}) = A_mul_B!(similar(x), p, x)
+*(p::MultiDimPlan{T}, x::StridedArray{T}) where T = A_mul_B!(similar(x), p, x)

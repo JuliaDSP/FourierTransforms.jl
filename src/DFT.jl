@@ -1,15 +1,16 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
+__precompile__()
 
 module DFT
 
 # DFT plan where the inputs are an array of eltype T
-abstract Plan{T}
+abstract type Plan{T} end
 
 import Base: show, summary, size, ndims, length, eltype,
              *, A_mul_B!, inv, \, A_ldiv_B!
 
-eltype{T}(::Plan{T}) = T
-eltype{P<:Plan}(T::Type{P}) = T.parameters[1]
+eltype(::Plan{T}) where T = T
+eltype(T::Type{<:Plan}) = T.parameters[1]
 
 # size(p) should return the size of the input array for p
 size(p::Plan, d) = size(p)[d]
@@ -21,18 +22,18 @@ export fft, ifft, bfft, fft!, ifft!, bfft!,
        plan_fft, plan_ifft, plan_bfft, plan_fft!, plan_ifft!, plan_bfft!,
        rfft, irfft, brfft, plan_rfft, plan_irfft, plan_brfft
 
-complexfloat{T<:FloatingPoint}(x::AbstractArray{Complex{T}}) = x
+complexfloat(x::AbstractArray{Complex{<:AbstractFloat}}) = x
 
 # return an Array, rather than similar(x), to avoid an extra copy for FFTW
 # (which only works on StridedArray types).
-complexfloat{T<:Complex}(x::AbstractArray{T}) = copy!(Array(typeof(float(one(T))), size(x)), x)
-complexfloat{T<:FloatingPoint}(x::AbstractArray{T}) = copy!(Array(typeof(complex(one(T))), size(x)), x)
-complexfloat{T<:Real}(x::AbstractArray{T}) = copy!(Array(typeof(complex(float(one(T)))), size(x)), x)
+complexfloat(x::AbstractArray{T}) where T<:Complex = copy!(Array{typeof(float(one(T)))}(size(x)), x)
+complexfloat(x::AbstractArray{T}) where T<:AbstractFloat = copy!(Array{typeof(complex(one(T)))}(size(x)), x)
+complexfloat(x::AbstractArray{T}) where T<:Real = copy!(Array{typeof(complex(float(one(T))))}(size(x)), x)
 
 # implementations only need to provide plan_X(x, region)
 # for X in (:fft, :bfft, ...):
 for f in (:fft, :bfft, :ifft, :fft!, :bfft!, :ifft!, :rfft)
-    pf = symbol(string("plan_", f))
+    pf = Symbol(:plan_, f)
     @eval begin
         $f(x::AbstractArray) = $pf(x) * x
         $f(x::AbstractArray, region) = $pf(x, region) * x
@@ -43,19 +44,19 @@ end
 # promote to a complex floating-point type (out-of-place only),
 # so implementations only need Complex{Float} methods
 for f in (:fft, :bfft, :ifft)
-    pf = symbol(string("plan_", f))
+    pf = Symbol(:plan_, f)
     @eval begin
-        $f{T<:Real}(x::AbstractArray{T}, region=1:ndims(x)) = $f(complexfloat(x), region)
-        $pf{T<:Real}(x::AbstractArray{T}, region; kws...) = $pf(complexfloat(x), region; kws...)
-        $f{T<:Union(Integer,Rational)}(x::AbstractArray{Complex{T}}, region=1:ndims(x)) = $f(complexfloat(x), region)
-        $pf{T<:Union(Integer,Rational)}(x::AbstractArray{Complex{T}}, region; kws...) = $pf(complexfloat(x), region; kws...)
+        $f(x::AbstractArray{<:Real}, region=1:ndims(x)) = $f(complexfloat(x), region)
+        $pf(x::AbstractArray{<:Real}, region; kws...) = $pf(complexfloat(x), region; kws...)
+        $f(x::AbstractArray{Complex{<:Union{Integer,Rational}}}, region=1:ndims(x)) = $f(complexfloat(x), region)
+        $pf(x::AbstractArray{Complex{<:Union{Integer,Rational}}}, region; kws...) = $pf(complexfloat(x), region; kws...)
     end
 end
-rfft{T<:Union(Integer,Rational)}(x::AbstractArray{T}, region=1:ndims(x)) = rfft(float(x), region)
-plan_rfft{T<:Union(Integer,Rational)}(x::AbstractArray{T}, region; kws...) = plan_rfft(float(x), region; kws...)
+rfft(x::AbstractArray{<:Union{Integer,Rational}}, region=1:ndims(x)) = rfft(float(x), region)
+plan_rfft(x::AbstractArray{<:Union{Integer,Rational}}, region; kws...) = plan_rfft(float(x), region; kws...)
 
 # only require implementation to provide *(::Plan{T}, ::Array{T})
-*{T}(p::Plan{T}, x::AbstractArray) = p * copy!(Array(T, size(x)), x)
+*(p::Plan{T}, x::AbstractArray) where T = p * copy!(Array(T, size(x)), x)
 
 # Implementations should also implement A_mul_B!(Y, plan, X) so as to support
 # pre-allocated output arrays.  We don't define * in terms of A_mul_B!
@@ -81,13 +82,13 @@ A_ldiv_B!(y::AbstractArray, p::Plan, x::AbstractArray) = A_mul_B!(y, inv(p), x)
 # implementations only need to provide the unnormalized backwards FFT,
 # similar to FFTW, and we do the scaling generically to get the ifft:
 
-type ScaledPlan{T,P,N} <: Plan{T}
+mutable struct ScaledPlan{T,P,N} <: Plan{T}
     p::P
     scale::N # not T, to avoid unnecessary promotion to Complex
     pinv::Plan
-    ScaledPlan(p, scale) = new(p, scale)
+    ScaledPlan{T,P,N}(p, scale) where {T,P,N} = new(p, scale)
 end
-ScaledPlan{P<:Plan,N<:Number}(p::P, scale::N) = ScaledPlan{eltype(P),P,N}(p, scale)
+ScaledPlan(p::P, scale::N) where {P<:Plan,N<:Number} = ScaledPlan{eltype(P),P,N}(p, scale)
 ScaledPlan(p::ScaledPlan, α::Number) = ScaledPlan(p.p, p.scale * α)
 
 size(p::ScaledPlan) = size(p.p)
@@ -127,7 +128,7 @@ A_mul_B!(y::AbstractArray, p::ScaledPlan, x::AbstractArray) =
 # or odd).
 
 for f in (:brfft, :irfft)
-    pf = symbol(string("plan_", f))
+    pf = Symbol(:plan_, f)
     @eval begin
         $f(x::AbstractArray, d::Integer) = $pf(x, d) * x
         $f(x::AbstractArray, d::Integer, region) = $pf(x, d, region) * x
@@ -137,8 +138,8 @@ end
 
 for f in (:brfft, :irfft)
     @eval begin
-        $f{T<:Real}(x::AbstractArray{T}, d::Integer, region=1:ndims(x)) = $f(complexfloat(x), d, region)
-        $f{T<:Union(Integer,Rational)}(x::AbstractArray{Complex{T}}, d::Integer, region=1:ndims(x)) = $f(complexfloat(x), d, region)
+        $f(x::AbstractArray{<:Real}, d::Integer, region=1:ndims(x)) = $f(complexfloat(x), d, region)
+        $f(x::AbstractArray{Complex{<:Union{Integer,Rational}}}, d::Integer, region=1:ndims(x)) = $f(complexfloat(x), d, region)
     end
 end
 
@@ -157,7 +158,7 @@ function brfft_output_size(x::AbstractArray, d::Integer, region)
     return osize
 end
 
-plan_irfft{T}(x::AbstractArray{Complex{T}}, d::Integer, region; kws...) =
+plan_irfft(x::AbstractArray{Complex{T}}, d::Integer, region; kws...) where T =
     ScaledPlan(plan_brfft(x, d, region; kws...),
                normalization(T, brfft_output_size(x, d, region), region))
 
@@ -184,17 +185,8 @@ end
 ##############################################################################
 # Native Julia FFTs:
 
-include("fft/ctfft.jl")
-include("fft/fftn.jl")
-
-##############################################################################
-
-# FFTW module (may move to an external package at some point):
-if Base.USE_GPL_LIBS
-    include("fft/FFTW.jl")
-    importall .FFTW
-    export FFTW, dct, idct, dct!, idct!, plan_dct, plan_idct, plan_dct!, plan_idct!
-end
+include("ctfft.jl")
+include("fftn.jl")
 
 ##############################################################################
 

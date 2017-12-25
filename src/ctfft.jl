@@ -1,5 +1,7 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
+using Primes
+
 # 1d Cooley-Tukey FFTs, using an FFTW-like (version 1) approach: automatic
 # generation of fixed-size FFT kernels (with and without twiddle factors)
 # which are combined to make arbitrary-size FFTs (plus generic base
@@ -11,18 +13,18 @@
 # now, we define a CTPlan (Cooley-Tukey plan) as a sequence of twiddle steps
 # followed by a nontwiddle step:
 
-abstract TwiddleStep{T}
-abstract NontwiddleStep{T}
+abstract type TwiddleStep{T} end
+abstract type NontwiddleStep{T} end
 
-type CTPlan{T,forward,Tt,Tn} <: Plan{T}
+mutable struct CTPlan{T,forward,Tt,Tn} <: Plan{T}
     n::Int
     tsteps::Tt # a tuple of TwiddleSteps
     nstep::Tn # a NontwiddleStep
     pinv::ScaledPlan{T}
-    CTPlan(n,tsteps,nstep) = new(n,tsteps,nstep)
+    CTPlan{T,forward,Tt,Tn}(n,tsteps,nstep) where {T,forward,Tt,Tn} = new(n,tsteps,nstep)
 end
 
-summary{T,forw}(p::CTPlan{T,forw}) = string(forw ? "for" : "back",
+summary(p::CTPlan{T,forw}) where {T,forw} = string(forw ? "for" : "back",
                                             "ward CTPlan{$T} of size ", p.n)
 function show(io::IO, p::CTPlan)
     if p.n == 0
@@ -38,18 +40,18 @@ end
 size(p::CTPlan) = (p.n,)
 
 # unscaled inverse:
-invCT{T,forward,Tt,Tn}(p::CTPlan{T,forward,Tt,Tn}) =
+invCT(p::CTPlan{T,forward,Tt,Tn}) where {T,forward,Tt,Tn} =
     CTPlan{T,!forward,Tuple{map(inv,Tt.parameters)...},inv(Tn)}(p.n, map(inv, p.tsteps), inv(p.nstep))
 
-plan_inv{T}(p::CTPlan{T}) =
+plan_inv(p::CTPlan{T}) where T =
     ScaledPlan(invCT(p), normalization(real(T), p.n, 1))
 
 # steps for pregenerated kernels:
-immutable TwiddleKernelStep{T,r,forward} <: TwiddleStep{T} # radix-r
+struct TwiddleKernelStep{T,r,forward} <: TwiddleStep{T} # radix-r
     m::Int # n / r
     W::Matrix{T}
-    TwiddleKernelStep(m::Int, W::Matrix{T}) = new(m, W)
-    function TwiddleKernelStep(n::Int)
+    TwiddleKernelStep{T,r,forward}(m::Int, W::Matrix{T}) where {T,r,forward} = new(m, W)
+    function TwiddleKernelStep{T,r,forward}(n::Int) where {T,r,forward}
         m = div(n, r)
         Tr = promote_type(Float64, real(T))
         twopi_n = -2(π/convert(Tr,n))
@@ -57,30 +59,30 @@ immutable TwiddleKernelStep{T,r,forward} <: TwiddleStep{T} # radix-r
         new(m, W)
     end
 end
-length{T,r}(ts::TwiddleKernelStep{T,r}) = r
-applystep{T}(ts::TwiddleKernelStep{T}, y::AbstractArray{T}, y0, ys) =
+length(ts::TwiddleKernelStep{T,r}) where {T,r} = r
+applystep(ts::TwiddleKernelStep{T}, y::AbstractArray{T}, y0, ys) where T =
     applystep(ts, ts.m, y, y0, ts.m * ys, ys, ts.W)
-inv{T,r,forward}(ts::TwiddleKernelStep{T,r,forward}) =
+inv(ts::TwiddleKernelStep{T,r,forward}) where {T,r,forward} =
     TwiddleKernelStep{T,r,!forward}(ts.m, ts.W)
-inv{T,r,forward}(::Type{TwiddleKernelStep{T,r,forward}}) =
+inv(::Type{TwiddleKernelStep{T,r,forward}}) where {T,r,forward} =
     TwiddleKernelStep{T,r,!forward}
-show{T,r}(io::IO, ts::TwiddleKernelStep{T,r}) = print(io, "radix ", r)
+show(io::IO, ts::TwiddleKernelStep{T,r}) where {T,r} = print(io, "radix ", r)
 
-immutable NontwiddleKernelStep{T,n,forward} <: NontwiddleStep{T} end
-length{T,n}(ns::NontwiddleKernelStep{T,n}) = n
-applystep{T,n}(ns::NontwiddleKernelStep{T,n}, r::Integer,
-               x::AbstractArray{T}, x0::Integer, xs::Integer,
-               y::AbstractArray{T}, y0::Integer, ys::Integer) =
+struct NontwiddleKernelStep{T,n,forward} <: NontwiddleStep{T} end
+length(ns::NontwiddleKernelStep{T,n}) where {T,n} = n
+applystep(ns::NontwiddleKernelStep{T,n}, r::Integer,
+          x::AbstractArray{T}, x0::Integer, xs::Integer,
+          y::AbstractArray{T}, y0::Integer, ys::Integer) where {T,n} =
     applystep(ns, r, x,x0,xs*r,xs, y,y0,ys,ys*n)
-inv{T,n,forward}(ns::NontwiddleKernelStep{T,n,forward}) =
+inv(ns::NontwiddleKernelStep{T,n,forward}) where {T,n,forward} =
     NontwiddleKernelStep{T,n,!forward}()
-inv{T,n,forward}(::Type{NontwiddleKernelStep{T,n,forward}}) =
+inv(::Type{NontwiddleKernelStep{T,n,forward}}) where {T,n,forward} =
     NontwiddleKernelStep{T,n,!forward}
-show{T,n}(io::IO, ns::NontwiddleKernelStep{T,n}) =
+show(io::IO, ns::NontwiddleKernelStep{T,n}) where {T,n} =
     print(io, "size ", n, " kernel")
 
 # create null plans for untransformed dimensions and 0-size arrays
-immutable NullNontwiddleStep{T} <: NontwiddleStep{T} end
+struct NullNontwiddleStep{T} <: NontwiddleStep{T} end
 applystep(::NullNontwiddleStep, r, x, x0, xs, y, y0, ys) = nothing
 show(io::IO, ::NullNontwiddleStep) = print(io, "null transform")
 inv(s::NullNontwiddleStep) = s
@@ -88,12 +90,12 @@ inv(::Type{NullNontwiddleStep}) = NullNontwiddleStep
 CTPlan(T,forward) =
     CTPlan{T,forward,(),NullNontwiddleStep{T}}(0, (), NullNontwiddleStep{T}())
 
-function CTPlan{Tr<:FloatingPoint}(::Type{Complex{Tr}}, forward::Bool, n::Int)
+function CTPlan(::Type{Complex{Tr}}, forward::Bool, n::Int) where Tr<:AbstractFloat
     T = Complex{Tr}
     n == 0 && return CTPlan(T,forward)
     factors = fft_factors(T, n)
     m = n
-    tsteps = Array(TwiddleStep{T}, length(factors)-1)
+    tsteps = Array{TwiddleStep{T}}(length(factors)-1)
     for i = 1:length(tsteps)
         tsteps[i] = Twiddle(T, m, factors[i], forward)
         m = tsteps[i].m
@@ -104,15 +106,15 @@ function CTPlan{Tr<:FloatingPoint}(::Type{Complex{Tr}}, forward::Bool, n::Int)
     CTPlan{T,forward,Tuple{map(typeof,tsteps_)...},typeof(nt)}(n, tsteps_, nt)
 end
 
-plan_fft{Tr<:FloatingPoint}(x::AbstractVector{Complex{Tr}}) =
+plan_fft(x::AbstractVector{Complex{Tr}}) where Tr<:AbstractFloat =
     CTPlan(Complex{Tr}, true, length(x))::CTPlan{Complex{Tr},true}
-plan_bfft{Tr<:FloatingPoint}(x::AbstractVector{Complex{Tr}}) =
+plan_bfft(x::AbstractVector{Complex{Tr}}) where Tr<:AbstractFloat =
     CTPlan(Complex{Tr}, false, length(x))::CTPlan{Complex{Tr},false}
 
-function applystep{T}(p::CTPlan{T},
-                      x::AbstractArray{T}, x0, xs,
-                      y::AbstractArray{T}, y0, ys,
-                      step::Int)
+function applystep(p::CTPlan{T},
+                   x::AbstractArray{T}, x0, xs,
+                   y::AbstractArray{T}, y0, ys,
+                   step::Int) where T
     nsteps = length(p.tsteps)
     if step > nsteps
         applystep(p.nstep, 1, x,x0,xs, y,y0,ys)
@@ -139,13 +141,13 @@ function applystep{T}(p::CTPlan{T},
     end
 end
 
-function A_mul_B!{T}(y::AbstractVector{T}, p::CTPlan{T}, x::AbstractVector{T})
+function A_mul_B!(y::AbstractVector{T}, p::CTPlan{T}, x::AbstractVector{T}) where T
     p.n == length(y) == length(x) || throw(BoundsError())
     applystep(p, x,1,1, y,1,1, 1)
     return y
 end
 
-*{T}(p::CTPlan{T}, x::AbstractVector{T}) = A_mul_B!(similar(x), p, x)
+*(p::CTPlan{T}, x::AbstractVector{T}) where T = A_mul_B!(similar(x), p, x)
 
 #############################################################################
 # FFT code generation:
@@ -182,11 +184,11 @@ end
 # real arithmetic and then apply a simplifier to eliminate
 # multiplications by `1` and similar.  That is a more powerful
 # approach, but this is quicker to implement.)
-function twiddle{Tr<:FloatingPoint}(T::Type{Complex{Tr}}, forward::Bool, n::Integer, k::Integer, x)
+function twiddle(T::Type{Complex{Tr}}, forward::Bool, n::Integer, k::Integer, x) where Tr<:AbstractFloat
     k == 0 && return x
     2k == n && return :(-$x)
     if 4k == n || 4k == 3n
-        tmpvar = gensym("twiddle")
+        tmpvar = gensym(:twiddle)
         if (4k == n && !forward) || (4k == 3n && forward) # ω = +im
             return :(let $tmpvar=$x; complex(-imag($tmpvar), real($tmpvar)); end)
         else  # ω = -im
@@ -207,7 +209,7 @@ function twiddle{Tr<:FloatingPoint}(T::Type{Complex{Tr}}, forward::Bool, n::Inte
         end
     end
     # make sure trig factors are correctly rounded:
-    c, s = with_bigfloat_precision(2*precision(one(Tr))) do
+    c, s = setprecision(2*precision(one(Tr))) do
         φ = (big(2) * k) / n
         convert(Tr, cospi(φ)), convert(Tr, sinpi(φ))
     end
@@ -277,12 +279,12 @@ fftgen(T, forward::Bool, n::Integer, X::Symbol, Y::Symbol) = fftgen(T, forward, 
 # `@nontwiddle(T,forward,n)` macro:
 macro nontwiddle(T, forward, n)
     quote
-        function $(esc(:applystep)){T<:$T}(ns::NontwiddleKernelStep{Complex{T},$n,$forward},
+        function $(esc(:applystep))(ns::NontwiddleKernelStep{Complex{T},$n,$forward},
                                   vn::Integer,
                                   X::AbstractArray{Complex{T}},
                                   x0::Integer, xs::Integer, xvs::Integer,
                                   Y::AbstractArray{Complex{T}},
-                                  y0::Integer, ys::Integer, yvs::Integer)
+                                  y0::Integer, ys::Integer, yvs::Integer) where {T<:$T}
             @inbounds @simd for i in 0:vn-1
                 $(fftgen(Complex{eval(T)}, forward, n,
                          j -> :(X[(x0 + xvs*i) + xs*$j]),
@@ -308,11 +310,11 @@ mulconj(z::Complex, w::Complex) =
 # as needed.
 macro twiddle(T, forward, n)
     quote
-        function  $(esc(:applystep)){T<:$T}(ts::TwiddleKernelStep{Complex{T},$n,$forward},
+        function  $(esc(:applystep))(ts::TwiddleKernelStep{Complex{T},$n,$forward},
                                    vn::Integer,
                                    X::AbstractArray{Complex{T}},
                                    x0::Integer, xs::Integer, xvs::Integer,
-                                   W::AbstractMatrix{Complex{T}})
+                                   W::AbstractMatrix{Complex{T}}) where {T<:$T}
             @inbounds @simd for i in 0:vn-1
                 $(fftgen(Complex{eval(T)}, forward, n,
                          j -> j == 0 ? :(X[(x0 + xvs*i) + xs*$j]) :
@@ -338,19 +340,19 @@ end
 const fft_kernel_sizes_sorted = sort!(Int[n for n in fft_kernel_sizes],
                                       rev=true)
 
-typealias CTComplex Union(Complex64,Complex128) # types of pregenerated kernels
+const CTComplex = Union{Complex64,Complex128} # types of pregenerated kernels
 
 # The above kernels are only for single- and double-precision, since they
 # include hard-coded transcendental constants.  The following kernels
 # are generic to any floating-point type.
 const generic_kernel_sizes = Set([1,2,4])
 for n in (1,2,4)
-    @eval @nontwiddle(FloatingPoint, true, $n)
-    @eval @nontwiddle(FloatingPoint, false, $n)
+    @eval @nontwiddle(AbstractFloat, true, $n)
+    @eval @nontwiddle(AbstractFloat, false, $n)
 end
 for forward in (true,false)
-    @eval @twiddle(FloatingPoint, $forward, 2)
-    @eval @twiddle(FloatingPoint, $forward, 4)
+    @eval @twiddle(AbstractFloat, $forward, 2)
+    @eval @twiddle(AbstractFloat, $forward, 4)
 end
 
 #############################################################################
@@ -374,7 +376,7 @@ function bluestein_b(T, forward, n, n2)
     return b
 end
 
-immutable NontwiddleBluesteinStep{T} <: NontwiddleStep{T}
+struct NontwiddleBluesteinStep{T} <: NontwiddleStep{T}
     n::Int   # DFT size to be computed
     n2::Int  # nextpow2(2n-1)
     p::Plan{T}  # plan for DFT of length n2
@@ -387,7 +389,7 @@ immutable NontwiddleBluesteinStep{T} <: NontwiddleStep{T}
 
     forward::Bool
 
-    function NontwiddleBluesteinStep(n::Int, forward::Bool)
+    function NontwiddleBluesteinStep{T}(n::Int, forward::Bool) where T
         n2 = nextpow2(2n-1)
         a = Array(T, n2)
         p = plan_fft(a)
@@ -400,16 +402,16 @@ end
 
 length(s::NontwiddleBluesteinStep) = s.n
 
-inv{T}(s::NontwiddleBluesteinStep{T}) =
+inv(s::NontwiddleBluesteinStep{T}) where T =
     NontwiddleBluesteinStep{T}(s.n, !s.forward)
-inv{T}(S::Type{NontwiddleBluesteinStep{T}}) = S
+inv(S::Type{NontwiddleBluesteinStep{T}}) where T = S
 
 show(io::IO, s::NontwiddleBluesteinStep) =
     print(io, "size ", s.n, " Bluestein-", s.n2)
 
-function applystep{T}(ns::NontwiddleBluesteinStep{T}, r,
-                      x::AbstractArray{T}, x0, xs,
-                      y::AbstractArray{T}, y0, ys)
+function applystep(ns::NontwiddleBluesteinStep{T}, r,
+                   x::AbstractArray{T}, x0, xs,
+                   y::AbstractArray{T}, y0, ys) where T
     a = ns.a
     b = ns.b
     A = ns.A
@@ -442,7 +444,7 @@ end
 
 # Similar to above, but a Bluestein-based twiddle step:
 
-immutable TwiddleBluesteinStep{T} <: TwiddleStep{T}
+struct TwiddleBluesteinStep{T} <: TwiddleStep{T}
     r::Int # radix
     m::Int # n / r
     W::Array{T} # twiddle factors
@@ -458,7 +460,7 @@ immutable TwiddleBluesteinStep{T} <: TwiddleStep{T}
 
     forward::Bool
 
-    function TwiddleBluesteinStep(n::Int, r::Int, forward::Bool)
+    function TwiddleBluesteinStep{T}(n::Int, r::Int, forward::Bool) where T
         m = div(n, r)
         Tr = promote_type(Float64, real(T))
         twopi_n = forward ? -2(π/convert(Tr,n)) : 2(π/convert(Tr,n))
@@ -479,11 +481,11 @@ length(s::TwiddleBluesteinStep) = s.r
 show(io::IO, s::TwiddleBluesteinStep) =
     print(io, "radix ", s.r, " Bluestein-", s.r2)
 
-inv{T}(s::TwiddleBluesteinStep{T}) =
+inv(s::TwiddleBluesteinStep{T}) where T =
     TwiddleBluesteinStep{T}(s.r*s.m, s.r, !s.forward)
-inv{T}(S::Type{TwiddleBluesteinStep{T}}) = S
+inv(S::Type{TwiddleBluesteinStep{T}}) where T = S
 
-function applystep{T}(ts::TwiddleBluesteinStep{T}, y::AbstractArray{T}, y0,ys)
+function applystep(ts::TwiddleBluesteinStep{T}, y::AbstractArray{T}, y0,ys) where T
     W = ts.W
     a = ts.a
     b = ts.b
