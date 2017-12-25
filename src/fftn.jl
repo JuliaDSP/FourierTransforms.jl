@@ -2,7 +2,7 @@
 
 # Multi-dimensional FFTs based on the 1d FFTs in ctfft.jl
 
-type MultiDimPlan{T,forward} <: Plan{T}
+mutable struct MultiDimPlan{T,forward} <: Plan{T}
     p::Vector{CTPlan{T,forward}} # 1d plans along each transformed dimension,
                                  # with p.n == 0 for untransformed dims.
     w::Vector{T} # workspace (for in-place 1d transforms)
@@ -32,7 +32,11 @@ end
 function MultiDimPlan(::Type{T}, forward::Bool, region, sz) where T<:Complex
     sregion = sort(Int[d for d in region])
     N = length(sz)
+@static if VERSION <= v"0.7.0-DEV.3180"
     p = Array{CTPlan{T,forward}}(N)
+else
+    p = Array{CTPlan{T,forward}}(uninitialized, N)
+end
     i = 0
     for d in sregion
         (d < 0 || d > N) && throw(ArgumentError("invalid dimension $d"))
@@ -46,7 +50,11 @@ function MultiDimPlan(::Type{T}, forward::Bool, region, sz) where T<:Complex
     for j = i+1:N
         p[j] = CTPlan(T,forward) # non-transformed dimensions
     end
+@static if VERSION <= v"0.7.0-DEV.3180"
     w = Array{T}(length(sregion) <= 1 ? 0 : maximum(sz[sregion[1:end-1]]))
+else
+    w = Array{T}(uninitialized, length(sregion) <= 1 ? 0 : maximum(sz[sregion[1:end-1]]))
+end
     MultiDimPlan{T,forward}(p, w, i)
 end
 
@@ -138,7 +146,11 @@ function A_mul_B!(y::StridedArray{T},
     if N > 0 && p.lastdim > 0
         applydims(p, 1, x,1, y,1)
     else
+    @static if VERSION <= v"0.7.0-DEV.3180"
         copy!(y, x)
+    else
+        copyto!(y, x)
+    end
     end
     return y
 end

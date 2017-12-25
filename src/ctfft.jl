@@ -95,7 +95,11 @@ function CTPlan(::Type{Complex{Tr}}, forward::Bool, n::Int) where Tr<:AbstractFl
     n == 0 && return CTPlan(T,forward)
     factors = fft_factors(T, n)
     m = n
+@static if VERSION <= v"0.7.0-DEV.3180"
     tsteps = Array{TwiddleStep{T}}(length(factors)-1)
+else
+    tsteps = Array{TwiddleStep{T}}(uninitialized, length(factors)-1)
+end
     for i = 1:length(tsteps)
         tsteps[i] = Twiddle(T, m, factors[i], forward)
         m = tsteps[i].m
@@ -221,10 +225,22 @@ end
 function dftgen(T, forward::Bool, n::Integer, x, y)
     n == 1 && return :($(y(0)) = $(x(0)))
     tmpvars = Symbol[ gensym(string("dftgen_", j)) for j in 0:n-1 ]
-    n == 2 && return Expr(:let, Expr(:block, :($(y(0)) = $(tmpvars[1]) + $(tmpvars[2])), :($(y(1)) = $(tmpvars[1]) - $(tmpvars[2]))), :($(tmpvars[1]) = $(x(0))), :($(tmpvars[2]) = $(x(1))))
-    Expr(:let,
-         Expr(:block, [:($(y(k)) = $(Expr(:call, :+, [twiddle(T, forward, n, j*k, tmpvars[j+1]) for j in 0:n-1]...))) for k=0:n-1]...),
-         [:($(tmpvars[j+1]) = $(x(j))) for j = 0:n-1]...)
+    # JuliaLang/julia #21774
+    @static if VERSION <= v"0.7.0-DEV.3180"
+        n == 2 && return Expr(:let, Expr(:block, :($(y(0)) = $(tmpvars[1]) + $(tmpvars[2])), :($(y(1)) = $(tmpvars[1]) - $(tmpvars[2]))), :($(tmpvars[1]) = $(x(0))), :($(tmpvars[2]) = $(x(1))))
+    else
+        n == 2 && return Expr(:let, :($(tmpvars[1]) = $(x(0))), :($(tmpvars[2]) = $(x(1))), Expr(:block, :($(y(0)) = $(tmpvars[1]) + $(tmpvars[2])), :($(y(1)) = $(tmpvars[1]) - $(tmpvars[2]))))
+    end
+    # JuliaLang/julia #21774
+    @static if VERSION <= v"0.7.0-DEV.3180"
+        Expr(:let,
+             Expr(:block, [:($(y(k)) = $(Expr(:call, :+, [twiddle(T, forward, n, j*k, tmpvars[j+1]) for j in 0:n-1]...))) for k=0:n-1]...),
+             [:($(tmpvars[j+1]) = $(x(j))) for j = 0:n-1]...)
+    else
+        Expr(:let,
+             [:($(tmpvars[j+1]) = $(x(j))) for j = 0:n-1]...,
+             Expr(:block, [:($(y(k)) = $(Expr(:call, :+, [twiddle(T, forward, n, j*k, tmpvars[j+1]) for j in 0:n-1]...))) for k=0:n-1]...))
+    end
 end
 
 # `fftgen(n, true, x, y)` generates an expression (`Expr`) for an FFT
@@ -340,7 +356,7 @@ end
 const fft_kernel_sizes_sorted = sort!(Int[n for n in fft_kernel_sizes],
                                       rev=true)
 
-const CTComplex = Union{Complex64,Complex128} # types of pregenerated kernels
+const CTComplex = Union{Complex{Float32},Complex{Float64}} # types of pregenerated kernels
 
 # The above kernels are only for single- and double-precision, since they
 # include hard-coded transcendental constants.  The following kernels
@@ -391,9 +407,14 @@ struct NontwiddleBluesteinStep{T} <: NontwiddleStep{T}
 
     function NontwiddleBluesteinStep{T}(n::Int, forward::Bool) where T
         n2 = nextpow2(2n-1)
-        a = Array(T, n2)
+    @static if VERSION <= v"0.7.0-DEV.3180"
+        a = Array{T}(n2)
+        A = Array{T}(n2)
+    else
+        a = Array{T}(uninitialized, n2)
+        A = Array{T}(uninitialized, n2)
+    end
         p = plan_fft(a)
-        A = Array(T, n2)
         b = bluestein_b(T, forward, n, n2)
         B = p * b
         new(n, n2, p, a, A, b, B, forward)

@@ -26,9 +26,15 @@ complexfloat(x::AbstractArray{Complex{<:AbstractFloat}}) = x
 
 # return an Array, rather than similar(x), to avoid an extra copy for FFTW
 # (which only works on StridedArray types).
-complexfloat(x::AbstractArray{T}) where T<:Complex = copy!(Array{typeof(float(one(T)))}(size(x)), x)
-complexfloat(x::AbstractArray{T}) where T<:AbstractFloat = copy!(Array{typeof(complex(one(T)))}(size(x)), x)
-complexfloat(x::AbstractArray{T}) where T<:Real = copy!(Array{typeof(complex(float(one(T))))}(size(x)), x)
+@static if VERSION <= v"0.7.0-DEV.3180"
+    complexfloat(x::AbstractArray{T}) where T<:Complex = copy!(Array{typeof(float(one(T)))}(size(x)), x)
+    complexfloat(x::AbstractArray{T}) where T<:AbstractFloat = copy!(Array{typeof(complex(one(T)))}(size(x)), x)
+    complexfloat(x::AbstractArray{T}) where T<:Real = copy!(Array{typeof(complex(float(one(T))))}(size(x)), x)
+else
+    complexfloat(x::AbstractArray{T}) where T<:Complex = copyto!(Array{typeof(float(one(T)))}(uninitialized, size(x)), x)
+    complexfloat(x::AbstractArray{T}) where T<:AbstractFloat = copyto!(Array{typeof(complex(one(T)))}(uninitialized, size(x)), x)
+    complexfloat(x::AbstractArray{T}) where T<:Real = copyto!(Array{typeof(complex(float(one(T))))}(uninitialized, size(x)), x)
+end
 
 # implementations only need to provide plan_X(x, region)
 # for X in (:fft, :bfft, ...):
@@ -56,7 +62,11 @@ rfft(x::AbstractArray{<:Union{Integer,Rational}}, region=1:ndims(x)) = rfft(floa
 plan_rfft(x::AbstractArray{<:Union{Integer,Rational}}, region; kws...) = plan_rfft(float(x), region; kws...)
 
 # only require implementation to provide *(::Plan{T}, ::Array{T})
-*(p::Plan{T}, x::AbstractArray) where T = p * copy!(Array(T, size(x)), x)
+@static if VERSION <= v"0.7.0-DEV.3180"
+    *(p::Plan{T}, x::AbstractArray) where T = p * copy!(Array{T}(size(x)), x)
+else
+    *(p::Plan{T}, x::AbstractArray) where T = p * copy!(Array{T}(uninitialized, size(x)), x)
+end
 
 # Implementations should also implement A_mul_B!(Y, plan, X) so as to support
 # pre-allocated output arrays.  We don't define * in terms of A_mul_B!
