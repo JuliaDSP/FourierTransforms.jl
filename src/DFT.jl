@@ -65,7 +65,7 @@ plan_rfft(x::AbstractArray{<:Union{Integer,Rational}}, region; kws...) = plan_rf
 @static if VERSION <= v"0.7.0-DEV.3180"
     *(p::Plan{T}, x::AbstractArray) where T = p * copy!(Array{T}(size(x)), x)
 else
-    *(p::Plan{T}, x::AbstractArray) where T = p * copy!(Array{T}(uninitialized, size(x)), x)
+    *(p::Plan{T}, x::AbstractArray) where T = p * copyto!(Array{T}(uninitialized, size(x)), x)
 end
 
 # Implementations should also implement A_mul_B!(Y, plan, X) so as to support
