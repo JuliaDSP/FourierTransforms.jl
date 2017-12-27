@@ -227,18 +227,21 @@ function dftgen(T, forward::Bool, n::Integer, x, y)
     tmpvars = Symbol[ gensym(string("dftgen_", j)) for j in 0:n-1 ]
     # JuliaLang/julia #21774
     @static if VERSION <= v"0.7.0-DEV.3180"
-        n == 2 && return Expr(:block, :($(y(0)) = $(tmpvars[1]) + $(tmpvars[2])), :($(y(1)) = $(tmpvars[1]) - $(tmpvars[2])), :($(tmpvars[1]) = $(x(0))), :($(tmpvars[2]) = $(x(1))))
+        n == 2 && return Expr(:let,
+                              Expr(:block, :($(y(0)) = $(tmpvars[1]) + $(tmpvars[2])), :($(y(1)) = $(tmpvars[1]) - $(tmpvars[2]))),
+                              :($(tmpvars[1]) = $(x(0))), :($(tmpvars[2]) = $(x(1))))
     else
-        n == 2 && return Expr(:block, :($(tmpvars[1]) = $(x(0))), :($(tmpvars[2]) = $(x(1))), Expr(:block, :($(y(0)) = $(tmpvars[1]) + $(tmpvars[2])), :($(y(1)) = $(tmpvars[1]) - $(tmpvars[2]))))
+        n == 2 && return Expr(:let,
+                              Expr(:block, :($(tmpvars[1]) = $(x(0))), :($(tmpvars[2]) = $(x(1)))),
+                              Expr(:block, :($(y(0)) = $(tmpvars[1]) + $(tmpvars[2])), :($(y(1)) = $(tmpvars[1]) - $(tmpvars[2]))))
     end
     # JuliaLang/julia #21774
     @static if VERSION <= v"0.7.0-DEV.3180"
-        Expr(:block,
-             Expr(:block, [:($(y(k)) = $(Expr(:call, :+, [twiddle(T, forward, n, j*k, tmpvars[j+1]) for j in 0:n-1]...))) for k=0:n-1]...),
+        Expr(:let, Expr(:block, [:($(y(k)) = $(Expr(:call, :+, [twiddle(T, forward, n, j*k, tmpvars[j+1]) for j in 0:n-1]...))) for k=0:n-1]...),
              [:($(tmpvars[j+1]) = $(x(j))) for j = 0:n-1]...)
     else
-        Expr(:block,
-             [:($(tmpvars[j+1]) = $(x(j))) for j = 0:n-1]...,
+        Expr(:let,
+             Expr(:block, [:($(tmpvars[j+1]) = $(x(j))) for j = 0:n-1]...),
              Expr(:block, [:($(y(k)) = $(Expr(:call, :+, [twiddle(T, forward, n, j*k, tmpvars[j+1]) for j in 0:n-1]...))) for k=0:n-1]...))
     end
 end
@@ -486,9 +489,14 @@ struct TwiddleBluesteinStep{T} <: TwiddleStep{T}
         Tr = promote_type(Float64, real(T))
         twopi_n = forward ? -2(π/convert(Tr,n)) : 2(π/convert(Tr,n))
         r2 = nextpow2(2r-1)
-        a = Array(T, r2)
+    @static if VERSION <= v"0.7.0-DEV.3180"
+        a = Array{T}(r2)
+        A = Array{T}(r2)
+    else
+        a = Array{T}(uninitialized, r2)
+        A = Array{T}(uninitialized, r2)
+    end
         p = plan_fft(a)
-        A = Array(T, r2)
         b = bluestein_b(T, forward, r, r2)
         B = p * b
         new(r, m,
