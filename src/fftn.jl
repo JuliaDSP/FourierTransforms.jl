@@ -1,5 +1,3 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
-
 # Multi-dimensional FFTs based on the 1d FFTs in ctfft.jl
 
 mutable struct MultiDimPlan{T,forward} <: Plan{T}

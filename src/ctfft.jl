@@ -1,5 +1,3 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
-
 using Primes
 
 # 1d Cooley-Tukey FFTs, using an FFTW-like (version 1) approach: automatic
@@ -598,5 +596,3 @@ function fft_factors(T::Type, n::Integer)
     end
     factors
 end
-
-#############################################################################
