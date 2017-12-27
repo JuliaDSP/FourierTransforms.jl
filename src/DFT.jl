@@ -2,7 +2,13 @@ __precompile__()
 
 module DFT
 
-using AbstractFFTs
+using Reexport
+
+if VERSION < v"0.7.0-DEV.3187"
+    @reexport using AbstractFFTs
+else
+    using AbstractFFTs
+end
 
 import AbstractFFTs: Plan, ScaledPlan,
                      fft, ifft, bfft, fft!, ifft!, bfft!,
