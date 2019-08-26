@@ -15,7 +15,7 @@ import AbstractFFTs: Plan, ScaledPlan,
 import Base: show, summary, size, ndims, length, eltype,
              *, inv, \
 
-import LinearAlgebra: mul!, ldiv!
+import LinearAlgebra: mul!
 
 ##############################################################################
 # Native Julia FFTs:

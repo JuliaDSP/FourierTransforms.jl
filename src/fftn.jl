@@ -125,7 +125,7 @@ function applydim(p::MultiDimPlan{T}, d, k,
     end
 end
 
-function A_mul_B!(y::StridedArray{T},
+function mul!(y::StridedArray{T},
                   p::MultiDimPlan{T}, x::StridedArray{T}) where T
     N = ndims(x)
     ndims(y) != N && throw(BoundsError())
@@ -141,4 +141,4 @@ function A_mul_B!(y::StridedArray{T},
     return y
 end
 
-*(p::MultiDimPlan{T}, x::StridedArray{T}) where T = A_mul_B!(similar(x), p, x)
+*(p::MultiDimPlan{T}, x::StridedArray{T}) where T = mul!(similar(x), p, x)

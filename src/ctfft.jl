@@ -139,13 +139,13 @@ function applystep(p::CTPlan{T},
     end
 end
 
-function A_mul_B!(y::AbstractVector{T}, p::CTPlan{T}, x::AbstractVector{T}) where T
+function mul!(y::AbstractVector{T}, p::CTPlan{T}, x::AbstractVector{T}) where T
     p.n == length(y) == length(x) || throw(BoundsError())
-    applystep(p, x,1,1, y,1,1, 1)
+    applystep(p, x, 1, 1, y, 1, 1, 1)
     return y
 end
 
-*(p::CTPlan{T}, x::AbstractVector{T}) where T = A_mul_B!(similar(x), p, x)
+*(p::CTPlan{T}, x::AbstractVector{T}) where T = mul!(similar(x), p, x)
 
 #############################################################################
 # FFT code generation:
@@ -380,7 +380,7 @@ end
 
 struct NontwiddleBluesteinStep{T} <: NontwiddleStep{T}
     n::Int   # DFT size to be computed
-    n2::Int  # nextpow2(2n-1)
+    n2::Int  # nextpow(2, 2n-1)
     p::Plan{T}  # plan for DFT of length n2
 
     # the following arrays are of length n2, used to compute the convolution
@@ -392,7 +392,7 @@ struct NontwiddleBluesteinStep{T} <: NontwiddleStep{T}
     forward::Bool
 
     function NontwiddleBluesteinStep{T}(n::Int, forward::Bool) where T
-        n2 = nextpow2(2n-1)
+        n2 = nextpow(2, 2n-1)
         a = Array{T}(undef, n2)
         A = Array{T}(undef, n2)
         p = plan_fft(a)
@@ -431,11 +431,11 @@ function applystep(ns::NontwiddleBluesteinStep{T}, r,
         # conv(a,b) = ifft(fft(a) .* B), where ifft -> bfft because
         # the 1/n2 scaling was included in b and B, and we use the
         # identity bfft(x) = conj(fft(conj(x))) so that we can re-use ns.p:
-        A_mul_B!(A, ns.p, a)
+        mul!(A, ns.p, a)
         @inbounds for j = 1:ns.n2
             A[j] = (A[j] * B[j])'
         end
-        A_mul_B!(a, ns.p, A)
+        mul!(a, ns.p, A)
         @inbounds for j = 1:ns.n
             y[y0 + ys*(j-1)] = (b[j] * a[j])'
         end
@@ -451,7 +451,7 @@ struct TwiddleBluesteinStep{T} <: TwiddleStep{T}
     m::Int # n / r
     W::Array{T} # twiddle factors
 
-    r2::Int  # nextpow2(2r-1)
+    r2::Int  # nextpow(2, 2r-1)
     p::Plan{T}  # plan for DFT of length r2
 
     # the following arrays are of length r2, used to compute the convolution
@@ -466,7 +466,7 @@ struct TwiddleBluesteinStep{T} <: TwiddleStep{T}
         m = div(n, r)
         Tr = promote_type(Float64, real(T))
         twopi_n = forward ? -2(π/convert(Tr,n)) : 2(π/convert(Tr,n))
-        r2 = nextpow2(2r-1)
+        r2 = nextpow(2, 2r-1)
         a = Array{T}(undef, r2)
         A = Array{T}(undef, r2)
         p = plan_fft(a)
@@ -506,11 +506,11 @@ function applystep(ts::TwiddleBluesteinStep{T}, y::AbstractArray{T}, y0,ys) wher
         # conv(a,b) = ifft(fft(a) .* B), where ifft -> bfft because
         # the 1/n2 scaling was included in b and B, and we use the
         # identity bfft(x) = conj(fft(conj(x))) so that we can re-use ts.p:
-        A_mul_B!(A, ts.p, a)
+        mul!(A, ts.p, a)
         @inbounds for j = 1:ts.r2
             A[j] = (A[j] * B[j])'
         end
-        A_mul_B!(a, ts.p, A)
+        mul!(a, ts.p, A)
         @inbounds for j = 1:ts.r
             y[y0 + ys_*(j-1)] = (b[j] * a[j])'
         end
