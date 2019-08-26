@@ -1,6 +1,6 @@
-import FourierTransforms, Random#, FFTW
+import FourierTransforms, Random
 import FourierTransforms: fft_kernel_sizes
-using Test
+using Test, LinearAlgebra
 
 # Ideally, we'd just test against FFTW but currently AbstractFFT doesn't support
 # having two backends loaded simultanously so, for now, we test against hardcoded
@@ -229,10 +229,24 @@ _fft_results = Dict(
     ],
 )
 
-# kernel test
 @testset "FFT kernel of size: $ks" for ks in fft_kernel_sizes
     Random.seed!(123)
 
     data = rand(ks)
     @test FourierTransforms.fft(data) ≈ _fft_results[ks]
+end
+
+@testset "Multiplication of size: $sz" for sz in [collect(fft_kernel_sizes); 511; 512; 513]
+    @testset "Real plan" begin
+        p = FourierTransforms.plan_fft(rand(sz))
+        xr = rand(sz)
+        @test p\(p*xr) ≈ xr
+    end
+
+    @testset "Complex plan" begin
+        p = FourierTransforms.plan_fft(rand(Complex{Float64}, sz))
+        x = rand(Complex{Float64}, sz)
+        @test mul!(similar(x), p, x) == p*x
+        @test p\(p*x) ≈ x
+    end
 end
