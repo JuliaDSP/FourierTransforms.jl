@@ -1,14 +1,8 @@
-__precompile__()
-
-module DFT
+module FourierTransforms
 
 using Reexport
 
-if VERSION < v"0.7.0-DEV.3187"
-    @reexport using AbstractFFTs
-else
-    using AbstractFFTs
-end
+using AbstractFFTs
 
 import AbstractFFTs: Plan, ScaledPlan,
                      fft, ifft, bfft, fft!, ifft!, bfft!,
@@ -19,7 +13,9 @@ import AbstractFFTs: Plan, ScaledPlan,
                      plan_inv, normalization
 
 import Base: show, summary, size, ndims, length, eltype,
-             *, A_mul_B!, inv, \, A_ldiv_B!
+             *, inv, \
+
+import LinearAlgebra: mul!, ldiv!
 
 ##############################################################################
 # Native Julia FFTs:
