@@ -141,7 +141,7 @@ end
 
 function mul!(y::AbstractVector{T}, p::CTPlan{T}, x::AbstractVector{T}) where T
     p.n == length(y) == length(x) || throw(BoundsError())
-    applystep(p, x, 1, 1, y, 1, 1, 1)
+    applystep(p, x, firstindex(x), 1, y, firstindex(y), 1, 1)
     return y
 end
 
