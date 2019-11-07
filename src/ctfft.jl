@@ -512,7 +512,7 @@ show(io::IO, s::TwiddleBluesteinStep) =
     print(io, "radix ", s.r, " Bluestein-", s.r2)
 
 inv(s::TwiddleBluesteinStep{T}) where T =
-    TwiddleBluesteinStep{T}(s.r*s.m, s.r, !s.forward)
+    TwiddleBluesteinStep{T}(s.r*s.m, ωpow, s.r, !s.forward)
 inv(S::Type{TwiddleBluesteinStep{T}}) where T = S
 
 function applystep(ts::TwiddleBluesteinStep{T}, y::AbstractArray{T}, y0,ys) where T
