@@ -46,6 +46,9 @@ plan_inv(p::CTPlan{T}) where T =
 
 # steps for pregenerated kernels:
 function ωpow(T::Type{<:Complex}, n, i)
+    if mod(4i,n) == 0
+        return T(0.0+(-1im)^(4i ÷ n))
+    end
     Tr = promote_type(Float64, fieldtype(T, 1))
     twopi_n = -2(π/convert(Tr,n))
     exp((twopi_n*i)*im)
