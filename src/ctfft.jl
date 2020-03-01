@@ -501,7 +501,7 @@ struct TwiddleBluesteinStep{T} <: TwiddleStep{T}
         b = bluestein_b(T, ωpow, forward, r, r2)
         B = p * b
         new(r, m,
-            T[ωpow(T, n, (-1)^forward * mod(j1*k2,n)) for j1=1:r-1, k2=0:m-1],
+            T[ωpow(T, n, -(-1)^forward * mod(j1*k2,n)) for j1=1:r-1, k2=0:m-1],
             r2, p, a, A, b, B, forward)
     end
 end
