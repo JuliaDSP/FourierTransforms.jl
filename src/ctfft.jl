@@ -46,6 +46,9 @@ plan_inv(p::CTPlan{T}) where T =
 
 # steps for pregenerated kernels:
 function ωpow(T::Type{<:Complex}, n, i)
+    if mod(4i,n) == 0
+        return T(0.0+(-1im)^(4i ÷ n))
+    end
     Tr = promote_type(Float64, fieldtype(T, 1))
     twopi_n = -2(π/convert(Tr,n))
     exp((twopi_n*i)*im)
@@ -501,7 +504,7 @@ struct TwiddleBluesteinStep{T} <: TwiddleStep{T}
         b = bluestein_b(T, ωpow, forward, r, r2)
         B = p * b
         new(r, m,
-            T[ωpow(T, n, (-1)^forward * mod(j1*k2,n)) for j1=1:r-1, k2=0:m-1],
+            T[ωpow(T, n, -(-1)^forward * mod(j1*k2,n)) for j1=1:r-1, k2=0:m-1],
             r2, p, a, A, b, B, forward)
     end
 end
